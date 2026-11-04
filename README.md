@@ -20,6 +20,12 @@ multiple AirPlay speakers, with a volume slider for each one.
 - **Sync:** Mac outputs are delayed to line up with AirPlay. The speakers delay audio by
   about 2 × the buffer setting + 65 ms. The Sync offset slider fine-tunes the delay.
 
+- **Video sync (optional):** the MultiAudio virtual output device (`Driver/`) is a Core Audio
+  plug-in that reports MultiAudio's current delay as its latency. With it selected as the
+  system output, video players delay their picture to match. It discards its own audio; the
+  tap still captures what apps play. It has no volume control, so the volume keys don't work
+  while it's selected.
+
 ## UI
 
 The menu-bar panel is a borderless window made of Liquid Glass tiles (SwiftUI `glassEffect`
@@ -41,6 +47,13 @@ and follows Reduce Motion.
 ```sh
 scripts/make-signing-identity.sh   # once: stable local signing, so permissions persist
 scripts/build-app.sh --install     # builds and copies to /Applications/MultiAudio.app
+```
+
+The optional virtual device needs an admin password, and installing or removing it briefly
+cuts all audio. Restart MultiAudio afterwards, then choose MultiAudio in the Sound menu:
+
+```sh
+scripts/build-driver.sh --install    # or --uninstall
 ```
 
 On first use, macOS asks for **Local Network** (to find speakers) and

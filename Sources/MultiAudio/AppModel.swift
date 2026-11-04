@@ -109,6 +109,7 @@ final class AppModel: ObservableObject {
         }
         localItems = items
         restorePendingLocal()
+        updateLocalDelay() // the virtual device may have just appeared
     }
 
     /// Saved outputs are only re-enabled once `beginRestoring()` is called, so the menu-bar
@@ -271,6 +272,11 @@ final class AppModel: ObservableObject {
         } else {
             router.localDelay = 0
         }
+        // With both kinds of output on and sync off they can't both match; favor AirPlay.
+        var latency = 0.0
+        if localItems.contains(where: { $0.enabled }) { latency = router.localDelay + AudioRouter.localBaseDelay }
+        if anyAirPlayEnabled { latency = max(latency, router.airplayDelay) }
+        CA_setVirtualDeviceLatency(seconds: latency)
     }
 
     func checkSystemOutput() {

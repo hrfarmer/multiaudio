@@ -19,6 +19,9 @@ public final class AudioRouter {
         didSet { applyLocalDelay() }
     }
 
+    /// Cushion every local output keeps on top of `localDelay` (seconds).
+    public static let localBaseDelay = 0.04
+
     public var onError: ((String) -> Void)?
 
     public init() {}
@@ -120,7 +123,7 @@ public final class AudioRouter {
 
     // MARK: Internals
 
-    private var localDelayFrames: Int { Int((0.04 + localDelay) * tap.sampleRate) }
+    private var localDelayFrames: Int { Int((Self.localBaseDelay + localDelay) * tap.sampleRate) }
 
     private func applyLocalDelay() {
         for out in locals.values { out.buffer.targetFrames = localDelayFrames }
