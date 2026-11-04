@@ -4,21 +4,33 @@ import os
 /// Interleaved stereo Float32 ring buffer with a "target delay" reader.
 ///
 /// One writer (the tap IO thread) and one reader (an output render thread).
-/// The reader keeps the buffered amount near `targetFrames`: it waits (outputs
-/// silence) until that much audio is queued, and drops audio if the backlog
-/// grows too large, which absorbs clock drift between devices.
+/// The reader keeps the buffered amount near `targetFrames`, in either direction:
+/// it waits (outputs silence) when too little is queued and drops audio when too
+/// much is, so changing the target takes effect mid-stream and clock drift between
+/// devices is absorbed.
 public final class StereoRingBuffer: @unchecked Sendable {
     private let capacity: Int
     private let storage: UnsafeMutablePointer<Float>
     private var writePos: Int = 0
     private var readPos: Int = 0
     private var priming = true
+    /// Set when the target changes, so the next read lands exactly on the new delay.
+    private var realign = false
+    /// How far the backlog may wander from the target before it's corrected. Must exceed
+    /// normal IO-cycle jitter, and stays small because this is also the sync error.
+    private static let driftTolerance = 2048
     private let lock = OSAllocatedUnfairLock()
 
     /// Frames of buffered audio the reader aims to keep (sets the output delay).
     public var targetFrames: Int {
         get { lock.withLockUnchecked { _target } }
-        set { lock.withLockUnchecked { _target = max(256, min(newValue, capacity - 4096)) } }
+        set {
+            lock.withLockUnchecked {
+                let target = max(256, min(newValue, capacity - 4096))
+                if target != _target { realign = true }
+                _target = target
+            }
+        }
     }
     private var _target: Int
 
@@ -50,15 +62,19 @@ public final class StereoRingBuffer: @unchecked Sendable {
     public func read(into out: UnsafeMutablePointer<Float>, frames: Int, gain: Float) {
         lock.withLockUnchecked {
             var available = writePos - readPos
+            let tolerance = Self.driftTolerance
+            let exact = realign
+            realign = false
+            if available < _target - (exact ? 0 : tolerance) { priming = true }
             if priming {
-                if available >= _target { priming = false } else {
+                guard available >= _target else {
                     out.update(repeating: 0, count: frames * 2)
                     return
                 }
-            }
-            // Drift control: if far above target, skip ahead.
-            let slack = max(2048, _target / 4)
-            if available > _target + slack {
+                priming = false
+                readPos = writePos - _target
+                available = _target
+            } else if available > _target + (exact ? 0 : tolerance) {
                 readPos = writePos - _target
                 available = _target
             }
