@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MultiAudio",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("27.0")],
     dependencies: [
         .package(url: "https://github.com/attaswift/BigInt.git", from: "5.7.0"),
     ],

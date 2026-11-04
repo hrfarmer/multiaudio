@@ -33,6 +33,8 @@ final class AppModel: ObservableObject {
     @Published var localItems: [LocalItem] = []
     @Published var airplayItems: [AirPlayItem] = []
     @Published var errorMessage: String?
+    /// Whether the settings tile is expanded in the panel.
+    @Published var showSettings = false
     @Published var systemOutputIsAirPlay = false
     @Published var syncLocalToAirPlay: Bool {
         didSet { defaults.set(syncLocalToAirPlay, forKey: "syncLocalToAirPlay"); updateLocalDelay() }
@@ -106,6 +108,21 @@ final class AppModel: ObservableObject {
             router.disableLocal(gone.id)
         }
         localItems = items
+        restorePendingLocal()
+    }
+
+    /// Saved outputs are only re-enabled once `beginRestoring()` is called, so the menu-bar
+    /// icon exists before the capture tap starts (which can block on a permission check).
+    private var restoreReady = false
+
+    func beginRestoring() {
+        restoreReady = true
+        restorePendingLocal()
+        updateAirPlay(airplayItems.map(\.device))
+    }
+
+    private func restorePendingLocal() {
+        guard restoreReady else { return }
         for id in pendingLocalRestore where localItems.contains(where: { $0.id == id }) {
             pendingLocalRestore.remove(id)
             setLocal(id, enabled: true)
@@ -162,7 +179,7 @@ final class AppModel: ObservableObject {
         for old in airplayItems where old.enabled && !items.contains(where: { $0.id == old.id }) {
             items.append(old)
         }
-        let restore = items.filter { !$0.enabled && defaults.bool(forKey: "airplay.enabled.\($0.id)") && !restoredAirPlay.contains($0.id) }
+        let restore = !restoreReady ? [] : items.filter { !$0.enabled && defaults.bool(forKey: "airplay.enabled.\($0.id)") && !restoredAirPlay.contains($0.id) }
         airplayItems = items
         for r in restore {
             restoredAirPlay.insert(r.id)

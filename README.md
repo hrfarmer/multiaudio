@@ -20,8 +20,15 @@ multiple AirPlay speakers, with a volume slider for each one.
 - **Sync:** Mac outputs are delayed to line up with AirPlay. The speakers delay audio by
   about 2 × the buffer setting + 65 ms. The Sync offset slider fine-tunes the delay.
 
+## UI
+
+The menu-bar panel is a borderless window made of Liquid Glass tiles (SwiftUI `glassEffect`
+in a `GlassEffectContainer`), so it can animate when opening and closing. It closes on Escape, a click elsewhere or a click on the icon,
+and follows Reduce Motion.
+
 ## Requirements
 
+- macOS 27.
 - Each speaker must allow your Mac to connect. For HomePods and Apple TVs that means:
   Home app → Home Settings → Speakers & TV → Allow Speaker & TV Access →
   **Anyone on the Same Network** (or Everyone).
@@ -44,5 +51,6 @@ On first use, macOS asks for **Local Network** (to find speakers) and
 - `swift run aptest <host> [seconds] [volume]` streams a quiet 440 Hz tone to a single
   receiver. It only accepts Desk Speaker unless `APTEST_ALLOW_ANY=1` is set.
 - Set `AIRPLAY_DEBUG=1` for protocol logging.
-- `MultiAudio.app/Contents/MacOS/MultiAudio --snapshot out.png [--dark] [--demo-state]`
-  renders the menu UI to a PNG.
+- `MultiAudio.app/Contents/MacOS/MultiAudio --open-panel [--demo-state] [--show-settings] [--stress] [--capture out.png] [--capture-at ms]`
+  opens the panel at launch and can screenshot it with ScreenCaptureKit.
+  `--demo-state` only changes what's shown; no audio is routed.

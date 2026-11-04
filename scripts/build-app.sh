@@ -23,7 +23,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>1</string>
-    <key>LSMinimumSystemVersion</key><string>15.0</string>
+    <key>LSMinimumSystemVersion</key><string>27.0</string>
     <key>LSUIElement</key><true/>
     <key>NSAudioCaptureUsageDescription</key><string>MultiAudio captures system audio so it can play it on several speakers at once.</string>
     <key>NSLocalNetworkUsageDescription</key><string>MultiAudio finds and streams to AirPlay speakers on your network.</string>
