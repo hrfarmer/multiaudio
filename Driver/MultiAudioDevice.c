@@ -39,15 +39,13 @@ static const Float32 kMinDecibels = -96;
 
 static AudioServerPlugInHostRef sHost;
 static pthread_mutex_t sStateLock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t sClockLock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_uint sRefCount;
 static atomic_uint sLatencyFrames;
 static UInt32 sIOClients; // guarded by sStateLock, as are the next two
 static Float32 sVolume = 1;
 static UInt32 sMuted;
 static Float64 sTicksPerFrame;
-static UInt64 sAnchorHostTime; // these two guarded by sClockLock
-static UInt64 sPeriodsElapsed;
+static UInt64 sAnchorHostTime; // set once: the clock runs from load, through every start and stop
 
 static AudioStreamBasicDescription streamFormat(void) {
     AudioStreamBasicDescription f = {0};
@@ -365,12 +363,7 @@ static OSStatus SetPropertyData(AudioServerPlugInDriverRef d, AudioObjectID obje
 
 static OSStatus StartIO(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32 client) {
     pthread_mutex_lock(&sStateLock);
-    if (sIOClients++ == 0) {
-        pthread_mutex_lock(&sClockLock);
-        sAnchorHostTime = mach_absolute_time();
-        sPeriodsElapsed = 0;
-        pthread_mutex_unlock(&sClockLock);
-    }
+    sIOClients++;
     pthread_mutex_unlock(&sStateLock);
     return noErr;
 }
@@ -382,16 +375,15 @@ static OSStatus StopIO(AudioServerPlugInDriverRef d, AudioObjectID device, UInt3
     return noErr;
 }
 
+// Worked out from the time rather than counted, so it can't fall behind if the host calls late,
+// and it never restarts, which the host would otherwise see as time jumping within one seed.
 static OSStatus GetZeroTimeStamp(AudioServerPlugInDriverRef d, AudioObjectID device, UInt32 client,
                                  Float64 *outSampleTime, UInt64 *outHostTime, UInt64 *outSeed) {
-    pthread_mutex_lock(&sClockLock);
     Float64 ticksPerPeriod = sTicksPerFrame * kZeroPeriodFrames;
-    UInt64 next = sAnchorHostTime + (UInt64)((sPeriodsElapsed + 1) * ticksPerPeriod);
-    if (next <= mach_absolute_time()) sPeriodsElapsed++;
-    *outSampleTime = sPeriodsElapsed * (Float64)kZeroPeriodFrames;
-    *outHostTime = sAnchorHostTime + (UInt64)(sPeriodsElapsed * ticksPerPeriod);
+    UInt64 periods = (UInt64)((mach_absolute_time() - sAnchorHostTime) / ticksPerPeriod);
+    *outSampleTime = periods * (Float64)kZeroPeriodFrames;
+    *outHostTime = sAnchorHostTime + (UInt64)(periods * ticksPerPeriod);
     *outSeed = 1;
-    pthread_mutex_unlock(&sClockLock);
     return noErr;
 }
 
@@ -434,6 +426,7 @@ static OSStatus Initialize(AudioServerPlugInDriverRef d, AudioServerPlugInHostRe
     mach_timebase_info_data_t timebase;
     mach_timebase_info(&timebase);
     sTicksPerFrame = (1e9 * timebase.denom / timebase.numer) / kSampleRate;
+    sAnchorHostTime = mach_absolute_time();
     Float32 volume;
     if (loadNumber(kStorageVolume, kCFNumberFloat32Type, &volume) && volume >= 0 && volume <= 1) sVolume = volume;
     UInt32 muted;
