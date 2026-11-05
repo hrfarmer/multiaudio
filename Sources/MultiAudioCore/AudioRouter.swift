@@ -8,6 +8,7 @@ public final class AudioRouter {
     private let tap = SystemAudioTap()
     private var locals: [String: LocalOutput] = [:]
     private var localVolumes: [String: Float] = [:]
+    private var airplayVolumes: [String: Float] = [:]
     private var airplaySessions: [String: AirPlaySession] = [:]
     private var streamer: AirPlayStreamer?
     private var airplayBuffer: StereoRingBuffer?
@@ -17,6 +18,15 @@ public final class AudioRouter {
     /// Extra delay applied to local outputs so they line up with AirPlay (seconds).
     public var localDelay: Double = 0 {
         didSet { applyLocalDelay() }
+    }
+
+    /// Scales every output on top of its own volume (0...1), in slider terms.
+    public var masterVolume: Float = 1 {
+        didSet {
+            guard masterVolume != oldValue else { return }
+            for (uid, out) in locals { out.setVolume((localVolumes[uid] ?? 1) * masterVolume) }
+            for (name, session) in airplaySessions { session.setVolume((airplayVolumes[name] ?? 0.5) * masterVolume) }
+        }
     }
 
     /// Cushion every local output keeps on top of `localDelay` (seconds).
@@ -35,7 +45,7 @@ public final class AudioRouter {
         guard locals[device.id] == nil else { return }
         try ensureTap()
         let out = LocalOutput(device: device, sampleRate: tap.sampleRate, delayFrames: localDelayFrames)
-        out.setVolume(volume)
+        out.setVolume(volume * masterVolume)
         try out.start(sampleRate: tap.sampleRate)
         locals[device.id] = out
         updateSinks()
@@ -49,7 +59,7 @@ public final class AudioRouter {
 
     public func setLocalVolume(_ uid: String, _ v: Float) {
         localVolumes[uid] = v
-        locals[uid]?.setVolume(v)
+        locals[uid]?.setVolume(v * masterVolume)
     }
 
     // MARK: AirPlay
@@ -62,7 +72,8 @@ public final class AudioRouter {
         try ensureTap()
         ensureStreamer()
         stateHandlers[target.name] = onState
-        startSession(target, volume: volume)
+        airplayVolumes[target.name] = volume
+        startSession(target, volume: volume * masterVolume)
     }
 
     private var stateHandlers: [String: (AirPlaySessionState) -> Void] = [:]
@@ -83,6 +94,7 @@ public final class AudioRouter {
 
     public func disableAirPlay(_ name: String) {
         stateHandlers.removeValue(forKey: name)
+        airplayVolumes.removeValue(forKey: name)
         if let s = airplaySessions.removeValue(forKey: name) { streamer?.remove(s) }
         if airplaySessions.isEmpty {
             streamer?.stopAll()
@@ -95,7 +107,8 @@ public final class AudioRouter {
     }
 
     public func setAirPlayVolume(_ name: String, _ v: Float) {
-        airplaySessions[name]?.setVolume(v)
+        airplayVolumes[name] = v
+        airplaySessions[name]?.setVolume(v * masterVolume)
     }
 
     /// Latency value sent to receivers (seconds). Changing it reconnects active AirPlay sessions.

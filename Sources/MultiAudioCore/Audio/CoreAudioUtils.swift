@@ -65,8 +65,9 @@ enum CA {
 
     /// Registers a block listener; returns a token that removes it when called.
     static func listen(_ obj: AudioObjectID, _ sel: AudioObjectPropertySelector,
+                       scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
                        queue: DispatchQueue = .main, _ handler: @escaping () -> Void) -> () -> Void {
-        var addr = address(sel)
+        var addr = address(sel, scope)
         let block: AudioObjectPropertyListenerBlock = { _, _ in handler() }
         AudioObjectAddPropertyListenerBlock(obj, &addr, queue, block)
         return {
@@ -114,13 +115,3 @@ public func CA_transport(_ dev: AudioDeviceID) -> UInt32 {
 }
 
 public func CA_setDefaultOutput(_ dev: AudioDeviceID) { CA.setDefaultOutput(dev) }
-
-/// Tells the MultiAudio virtual output device (Driver/MultiAudioDevice.c) how late audio will
-/// play, so video players delay their picture to match. Does nothing if it isn't installed.
-public func CA_setVirtualDeviceLatency(seconds: Double) {
-    guard let device = CA.device(forUID: "MultiAudioDevice_UID") else { return }
-    var addr = CA.address(0x6D6C6174) // 'mlat'
-    var frames = Int32(seconds * 48000)
-    var number: CFNumber? = CFNumberCreate(nil, .sInt32Type, &frames)
-    AudioObjectSetPropertyData(device, &addr, 0, nil, UInt32(MemoryLayout<CFNumber?>.size), &number)
-}

@@ -22,7 +22,7 @@ cat > "$DRIVER/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>MultiAudioDevice</string>
     <key>CFBundlePackageType</key><string>BNDL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>CFPlugInFactories</key>
     <dict>
         <key>7C1F8E0A-3B52-4E6D-9A14-2D6F0B8C5E31</key><string>MultiAudioDevice_Create</string>

@@ -340,6 +340,37 @@ struct SettingsTile: View {
                 .transition(.opacity)
             }
 
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Video sync")
+                    Text(model.driverState == .ready
+                         ? "Keeps video in time with delayed audio. The volume keys control all outputs."
+                         : "Keeps video in time with delayed audio. Needs a one-time install.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if model.driverState != .missing {
+                        Button("Remove driver…") { model.removeDriver() }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                            .disabled(model.driverBusy)
+                    }
+                }
+                Spacer(minLength: 8)
+                switch model.driverState {
+                case .ready:
+                    Toggle("Video sync", isOn: $model.videoSync)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                case .missing, .outdated:
+                    Button(model.driverState == .missing ? "Install…" : "Update…") { model.installDriver() }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .disabled(model.driverBusy)
+                }
+            }
+
             HStack {
                 Text("Launch at login")
                 Spacer()
