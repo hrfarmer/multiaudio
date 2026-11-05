@@ -1,3 +1,5 @@
+just a utility i made for myself to be able to use my mac mini + homepod mini as a stereo speaker pair
+
 # MultiAudio
 
 A menu-bar app that plays your Mac's audio on several outputs at once, including
