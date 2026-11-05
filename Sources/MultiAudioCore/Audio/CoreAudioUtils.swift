@@ -85,6 +85,9 @@ public struct OutputDeviceInfo: Identifiable, Hashable, Sendable {
     public let transport: UInt32
 
     public var isBuiltIn: Bool { transport == kAudioDeviceTransportTypeBuiltIn }
+    public var isBluetooth: Bool {
+        transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
 
     public static func currentOutputs() -> [OutputDeviceInfo] {
         CA.allDevices().compactMap { dev in
@@ -115,3 +118,7 @@ public func CA_transport(_ dev: AudioDeviceID) -> UInt32 {
 }
 
 public func CA_setDefaultOutput(_ dev: AudioDeviceID) { CA.setDefaultOutput(dev) }
+
+public func CA_name(_ dev: AudioDeviceID) -> String? { CA.string(dev, kAudioObjectPropertyName) }
+
+public func CA_uid(_ dev: AudioDeviceID) -> String? { CA.string(dev, kAudioDevicePropertyDeviceUID) }

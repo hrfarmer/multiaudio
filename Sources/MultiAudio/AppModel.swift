@@ -22,6 +22,8 @@ final class AppModel: ObservableObject {
         case off, resolving, connecting, playing
         /// Disconnected after a long silence; reconnects when audio plays.
         case asleep
+        /// MultiAudio has stepped aside for another system output.
+        case paused
         case failed(String)
     }
 
@@ -74,8 +76,11 @@ final class AppModel: ObservableObject {
     private var listeners: [() -> Void] = []
     /// Whether we put the virtual device in as the system output and owe it back.
     private var holdsSystemOutput = false
-    /// Someone picked another output in the Sound menu; leave it until routing next starts.
-    private var systemOutputOverridden = false
+    /// While another system output is selected, MultiAudio steps aside: this is its name,
+    /// and nothing is captured or routed.
+    @Published var pausedForOutput: String?
+    /// The output being stepped aside for; a Bluetooth one going away resumes routing.
+    private var pausedDeviceUID: String?
     private var observedVirtualDevice: AudioDeviceID?
     private var stopObservingVolume: (() -> Void)?
 
@@ -114,6 +119,7 @@ final class AppModel: ObservableObject {
 
     func refreshLocalDevices() {
         let devices = OutputDeviceInfo.currentOutputs()
+        let known = Set(localItems.map(\.id))
         var items: [LocalItem] = []
         for d in devices {
             if let existing = localItems.first(where: { $0.id == d.id }) {
@@ -137,6 +143,13 @@ final class AppModel: ObservableObject {
         restorePendingLocal()
         updateLocalDelay() // the virtual device may have just appeared
         observeVirtualDevice()
+        // macOS doesn't move to headphones by itself from the virtual device, so do what it
+        // would do from speakers.
+        if restoreReady, holdsSystemOutput, let headphones = devices.first(where: { $0.isBluetooth && !known.contains($0.id) }) {
+            log.notice("switching to \(headphones.name, privacy: .public)")
+            CA_setDefaultOutput(headphones.deviceID)
+        }
+        reconcileSystemOutput()
     }
 
     /// Saved outputs are only re-enabled once `beginRestoring()` is called, so the menu-bar
@@ -150,6 +163,11 @@ final class AppModel: ObservableObject {
         }
         restoreReady = true
         watchForIdleAirPlay()
+        // Launched while headphones are in use: don't take the sound away from them.
+        if VirtualDevice.deviceID != nil, !VirtualDevice.isSystemOutput, isBluetooth(CA_defaultOutput()) {
+            holdsSystemOutput = false
+            pauseRouting()
+        }
         restorePendingLocal()
         updateAirPlay(airplayItems.map(\.device))
         updateLocalDelay()
@@ -259,6 +277,7 @@ final class AppModel: ObservableObject {
                     self?.airplayStateChanged(name, state)
                 }
                 log.notice("airplay \(name, privacy: .public) resolved \(target.host, privacy: .public), capturing=\(self.router.isCapturing)")
+                if router.isPaused { airplayItems[j].status = .paused }
             } catch {
                 airplayStateChanged(name, .failed("\(error)"))
             }
@@ -376,8 +395,11 @@ final class AppModel: ObservableObject {
     /// so it must not stay the system output once nothing is routed.
     private func updateSystemOutput() {
         guard restoreReady else { return }
-        if !isActive { systemOutputOverridden = false }
-        let wanted = isActive && !systemOutputOverridden && VirtualDevice.deviceID != nil
+        if !isActive && pausedForOutput != nil {
+            resumeRouting() // turning an output back on later means "use MultiAudio"
+            return
+        }
+        let wanted = isActive && pausedForOutput == nil && VirtualDevice.deviceID != nil
         if wanted && !holdsSystemOutput {
             holdsSystemOutput = true
             if let previous = VirtualDevice.becomeSystemOutput() { defaults.set(previous, forKey: "previousSystemOutput") }
@@ -391,6 +413,52 @@ final class AppModel: ObservableObject {
         holdsSystemOutput = false
         VirtualDevice.resignSystemOutput(to: defaults.string(forKey: "previousSystemOutput"))
     }
+
+    /// MultiAudio routes while it's the system output and steps aside while anything else is,
+    /// so the Sound menu keeps working the way it does without MultiAudio.
+    private func reconcileSystemOutput() {
+        guard restoreReady, VirtualDevice.deviceID != nil else { return }
+        if pausedForOutput != nil {
+            let deviceGone = pausedDeviceUID.map { uid in !OutputDeviceInfo.currentOutputs().contains { $0.id == uid } } ?? false
+            if VirtualDevice.isSystemOutput || deviceGone {
+                resumeRouting()
+            } else {
+                let current = CA_defaultOutput()
+                pausedForOutput = CA_name(current)
+                if isBluetooth(current) { pausedDeviceUID = CA_uid(current) }
+            }
+        } else if holdsSystemOutput && !VirtualDevice.isSystemOutput {
+            holdsSystemOutput = false
+            pauseRouting()
+        }
+    }
+
+    private func isBluetooth(_ device: AudioDeviceID) -> Bool {
+        let transport = CA_transport(device)
+        return transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    private func pauseRouting() {
+        let current = CA_defaultOutput()
+        pausedForOutput = CA_name(current) ?? "another output"
+        pausedDeviceUID = CA_uid(current)
+        log.notice("paused for \(self.pausedForOutput ?? "?", privacy: .public)")
+        router.pause()
+        for i in airplayItems.indices where airplayItems[i].enabled { airplayItems[i].status = .paused }
+    }
+
+    private func resumeRouting() {
+        log.notice("resuming routing")
+        pausedForOutput = nil
+        pausedDeviceUID = nil
+        for i in airplayItems.indices where airplayItems[i].status == .paused { airplayItems[i].status = .connecting }
+        holdsSystemOutput = VirtualDevice.isSystemOutput
+        updateSystemOutput() // the output first: capture is clocked from it
+        router.resume()
+    }
+
+    /// The panel's way back from another system output.
+    func useMultiAudio() { resumeRouting() }
 
     /// The volume keys change the virtual device's volume while it's the system output.
     private func applyMasterVolume() {
@@ -425,11 +493,7 @@ final class AppModel: ObservableObject {
     func checkSystemOutput() {
         let dev = CA_defaultOutput()
         systemOutputIsAirPlay = CA_transport(dev) == kAudioDeviceTransportTypeAirPlay
-        // Respect a choice made in the Sound menu rather than fight it.
-        if holdsSystemOutput && VirtualDevice.deviceID != nil && !VirtualDevice.isSystemOutput {
-            holdsSystemOutput = false
-            systemOutputOverridden = true
-        }
+        reconcileSystemOutput()
         applyMasterVolume()
     }
 

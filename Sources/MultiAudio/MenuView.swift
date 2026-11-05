@@ -23,6 +23,14 @@ struct MenuView: View {
                         .transition(.blurReplace)
                 }
 
+                if let output = model.pausedForOutput {
+                    NoticeTile(icon: "pause.circle.fill", tint: .accentColor,
+                               text: "Sound is playing directly on \(output), so MultiAudio is paused.",
+                               action: ("Use MultiAudio", { withAnimation(.smooth) { model.useMultiAudio() } }))
+                        .glassEffectID("paused", in: glass)
+                        .transition(.blurReplace)
+                }
+
                 if let err = model.errorMessage {
                     NoticeTile(icon: "xmark.octagon.fill", tint: .red, text: err,
                                action: ("Dismiss", { withAnimation(.smooth) { model.errorMessage = nil } }))
@@ -136,6 +144,7 @@ struct MenuView: View {
         case .resolving: return "Finding…"
         case .connecting: return "Connecting…"
         case .asleep: return "Asleep until audio plays"
+        case .paused: return "Paused"
         case .failed(let m): return m
         }
     }

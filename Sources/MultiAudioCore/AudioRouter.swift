@@ -18,6 +18,10 @@ public final class AudioRouter {
     private var defaultDeviceListener: (() -> Void)?
     /// Speakers disconnected by `suspendAirPlay`, to reconnect on `resumeAirPlay`.
     private var suspendedAirPlay: [AirPlayTarget] = []
+    /// Local outputs to bring back on `resume()`.
+    private var pausedLocals: [OutputDeviceInfo] = []
+    /// While paused nothing is captured or muted, so macOS plays audio normally.
+    public private(set) var isPaused = false
 
     /// Extra delay applied to local outputs so they line up with AirPlay (seconds).
     public var localDelay: Double = 0 {
@@ -46,6 +50,10 @@ public final class AudioRouter {
 
     public func enableLocal(_ device: OutputDeviceInfo, volume: Float) throws {
         localVolumes[device.id] = volume
+        if isPaused {
+            if !pausedLocals.contains(where: { $0.id == device.id }) { pausedLocals.append(device) }
+            return
+        }
         guard locals[device.id] == nil else { return }
         try ensureTap()
         let out = LocalOutput(device: device, sampleRate: tap.sampleRate, delayFrames: localDelayFrames)
@@ -57,6 +65,7 @@ public final class AudioRouter {
     }
 
     public func disableLocal(_ uid: String) {
+        pausedLocals.removeAll { $0.id == uid }
         locals.removeValue(forKey: uid)?.stop()
         updateSinks()
         stopTapIfIdle()
@@ -75,6 +84,12 @@ public final class AudioRouter {
     // MARK: AirPlay
 
     public func enableAirPlay(_ target: AirPlayTarget, volume: Float, onState: @escaping (AirPlaySessionState) -> Void) throws {
+        if isPaused {
+            stateHandlers[target.name] = onState
+            airplayVolumes[target.name] = volume
+            if !suspendedAirPlay.contains(where: { $0.name == target.name }) { suspendedAirPlay.append(target) }
+            return
+        }
         resumeAirPlay()
         tap.noteActivity() // a speaker turned on during silence shouldn't sleep right away
         if let existing = airplaySessions[target.name] {
@@ -137,19 +152,52 @@ public final class AudioRouter {
     /// Disconnects every speaker but keeps capturing, then calls `onAudio` on the main thread
     /// the next time audio is audible. Speakers stay enabled; they're just asleep.
     public func suspendAirPlay(onAudio: @escaping () -> Void) {
-        guard !isAirPlaySuspended, !airplaySessions.isEmpty else { return }
-        suspendedAirPlay = airplaySessions.values.map(\.target)
+        guard !isPaused, !isAirPlaySuspended, !airplaySessions.isEmpty else { return }
+        disconnectAirPlay()
+        tap.onNextAudio { DispatchQueue.main.async(execute: onAudio) }
+    }
+
+    private func disconnectAirPlay() {
+        suspendedAirPlay += airplaySessions.values.map(\.target)
         streamer?.stopAll()
         streamer = nil
         airplaySessions = [:]
         airplayBuffer = nil
         resampler = nil
         updateSinks()
-        tap.onNextAudio { DispatchQueue.main.async(execute: onAudio) }
+    }
+
+    /// Stops routing completely and hands audio back to macOS; settings are kept for `resume()`.
+    public func pause() {
+        guard !isPaused else { return }
+        isPaused = true
+        disconnectAirPlay()
+        pausedLocals += locals.values.map(\.device)
+        locals.values.forEach { $0.stop() }
+        locals = [:]
+        updateSinks()
+        tap.onNextAudio(nil)
+        tap.stop()
+        defaultDeviceListener?()
+        defaultDeviceListener = nil
+    }
+
+    public func resume() {
+        guard isPaused else { return }
+        isPaused = false
+        let devices = pausedLocals
+        pausedLocals = []
+        do {
+            for d in devices { try enableLocal(d, volume: localVolumes[d.id] ?? 1) }
+            if isAirPlaySuspended { try ensureTap() }
+        } catch {
+            onError?("\(error)")
+        }
+        resumeAirPlay()
     }
 
     public func resumeAirPlay() {
-        guard isAirPlaySuspended else { return }
+        guard !isPaused, isAirPlaySuspended else { return }
         let targets = suspendedAirPlay
         suspendedAirPlay = []
         tap.onNextAudio(nil)
@@ -179,6 +227,8 @@ public final class AudioRouter {
         for (uid, _) in locals { disableLocal(uid) }
         for (name, _) in airplaySessions { disableAirPlay(name) }
         suspendedAirPlay = []
+        pausedLocals = []
+        isPaused = false
         tap.onNextAudio(nil)
         tap.stop()
     }

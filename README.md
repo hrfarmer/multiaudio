@@ -29,8 +29,10 @@ multiple AirPlay speakers, with a volume slider for each one.
   plug-in that reports the current delay as its latency. While any output is on, MultiAudio
   makes it the system output, so video players delay their picture to match. It discards its
   own audio; the tap still captures what apps play. When nothing is routed, MultiAudio hands
-  the system output back. Picking another output in the Sound menu is respected until
-  routing next starts. The device's volume and mute controls act as a master volume across
+  the system output back. Selecting any other output in the Sound menu pauses MultiAudio
+  completely, so macOS plays to it normally. Selecting MultiAudio again resumes routing.
+  Bluetooth headphones switch over when they connect, and routing resumes when they go.
+  The device's volume and mute controls act as a master volume across
   all outputs, so the volume keys work.
 
 ## UI
