@@ -20,6 +20,8 @@ final class AppModel: ObservableObject {
 
     enum AirPlayStatus: Equatable {
         case off, resolving, connecting, playing
+        /// Disconnected after a long silence; reconnects when audio plays.
+        case asleep
         case failed(String)
     }
 
@@ -54,6 +56,13 @@ final class AppModel: ObservableObject {
         }
     }
     var airplayDelayDescription: String { String(format: "%.1f s", router.airplayDelay) }
+    /// Disconnect AirPlay speakers after a long silence, so their lights go out.
+    @Published var airplaySleepsWhenIdle: Bool {
+        didSet {
+            defaults.set(airplaySleepsWhenIdle, forKey: "airplaySleepsWhenIdle")
+            if !airplaySleepsWhenIdle { wakeAirPlay() }
+        }
+    }
     /// Nothing is routed until the virtual device is installed and current.
     @Published var driverState = VirtualDeviceInstaller.state
     @Published var driverBusy = false
@@ -83,6 +92,7 @@ final class AppModel: ObservableObject {
         syncOffsetMs = min(AppModel.offsetRangeMs.upperBound, max(AppModel.offsetRangeMs.lowerBound, savedOffset))
         airplayBuffer = defaults.object(forKey: "airplayBuffer") as? Double ?? 0.25
         holdsSystemOutput = VirtualDevice.isSystemOutput
+        airplaySleepsWhenIdle = defaults.object(forKey: "airplaySleepsWhenIdle") as? Bool ?? true
         router.airplayBufferSeconds = airplayBuffer
         router.onError = { [weak self] msg in Task { @MainActor in self?.errorMessage = msg } }
 
@@ -139,6 +149,7 @@ final class AppModel: ObservableObject {
             return
         }
         restoreReady = true
+        watchForIdleAirPlay()
         restorePendingLocal()
         updateAirPlay(airplayItems.map(\.device))
         updateLocalDelay()
@@ -302,6 +313,39 @@ final class AppModel: ObservableObject {
         airplayItems[i].volume = v
         defaults.set(v, forKey: "airplay.volume.\(name)")
         router.setAirPlayVolume(name, v)
+    }
+
+    // MARK: Sleep when idle
+
+    static let idleCheckInterval: Duration = .seconds(5)
+    /// Hidden `airplayIdleSeconds` default is for testing.
+    private var idleSeconds: Double { defaults.object(forKey: "airplayIdleSeconds") as? Double ?? 30 }
+
+    private func watchForIdleAirPlay() {
+        Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: AppModel.idleCheckInterval)
+                guard let self else { return }
+                self.sleepAirPlayIfIdle()
+            }
+        }
+    }
+
+    private func sleepAirPlayIfIdle() {
+        guard airplaySleepsWhenIdle, !router.isAirPlaySuspended, router.secondsSinceAudio >= idleSeconds else { return }
+        router.suspendAirPlay { [weak self] in MainActor.assumeIsolated { self?.wakeAirPlay() } }
+        guard router.isAirPlaySuspended else { return }
+        log.notice("airplay asleep after \(Int(self.idleSeconds)) s of silence")
+        for i in airplayItems.indices where airplayItems[i].enabled && airplayItems[i].status != .resolving {
+            airplayItems[i].status = .asleep
+        }
+    }
+
+    private func wakeAirPlay() {
+        guard router.isAirPlaySuspended else { return }
+        log.notice("airplay waking")
+        for i in airplayItems.indices where airplayItems[i].status == .asleep { airplayItems[i].status = .connecting }
+        router.resumeAirPlay()
     }
 
     // MARK: Sync / misc

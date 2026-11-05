@@ -13,6 +13,11 @@ public final class SystemAudioTap: @unchecked Sendable {
     private let sinksLock = OSAllocatedUnfairLock()
     private var sinks: [StereoRingBuffer] = []
     private let ioQueue = DispatchQueue(label: "multiaudio.tap", qos: .userInteractive)
+    /// Quieter than this counts as silence (about -80 dBFS).
+    private static let audibleLevel: Float = 0.0001
+    private let activityLock = OSAllocatedUnfairLock()
+    private var lastAudibleTicks = mach_absolute_time()
+    private var audioHandler: (() -> Void)?
 
     public private(set) var sampleRate: Double = 48000
     public private(set) var isRunning = false
@@ -21,6 +26,38 @@ public final class SystemAudioTap: @unchecked Sendable {
 
     public func setSinks(_ buffers: [StereoRingBuffer]) {
         sinksLock.withLockUnchecked { sinks = buffers }
+    }
+
+    /// Seconds since anything audible was captured, or since `noteActivity()`.
+    public var secondsSinceAudio: Double {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        let ticks = mach_absolute_time() - activityLock.withLockUnchecked { lastAudibleTicks }
+        return Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1e9
+    }
+
+    public func noteActivity() {
+        activityLock.withLockUnchecked { lastAudibleTicks = mach_absolute_time() }
+    }
+
+    /// Calls `handler` once, on the capture thread, the next time audio is audible.
+    public func onNextAudio(_ handler: (() -> Void)?) {
+        activityLock.withLockUnchecked { audioHandler = handler }
+    }
+
+    private func noteLevel(_ left: UnsafePointer<Float>, _ right: UnsafePointer<Float>, stride: Int, frames: Int) {
+        var audible = false
+        for i in 0..<frames where abs(left[i * stride]) > Self.audibleLevel || abs(right[i * stride]) > Self.audibleLevel {
+            audible = true
+            break
+        }
+        guard audible else { return }
+        let handler = activityLock.withLockUnchecked { () -> (() -> Void)? in
+            lastAudibleTicks = mach_absolute_time()
+            defer { audioHandler = nil }
+            return audioHandler
+        }
+        handler?()
     }
 
     public func start() throws {
@@ -85,18 +122,19 @@ public final class SystemAudioTap: @unchecked Sendable {
         let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
         guard let first = abl.first, let data = first.mData else { return }
         let targets = sinksLock.withLockUnchecked { sinks }
-        guard !targets.isEmpty else { return }
 
         if interleaved || abl.count == 1 {
             let ch = max(1, Int(first.mNumberChannels))
             let frames = Int(first.mDataByteSize) / (MemoryLayout<Float>.size * ch)
             let p = data.assumingMemoryBound(to: Float.self)
             let right = ch > 1 ? p + 1 : p
+            noteLevel(p, right, stride: ch, frames: frames)
             for s in targets { s.write(left: p, right: right, stride: ch, frames: frames) }
         } else {
             let frames = Int(first.mDataByteSize) / MemoryLayout<Float>.size
             let l = data.assumingMemoryBound(to: Float.self)
             let r = (abl.count > 1 ? abl[1].mData : data)!.assumingMemoryBound(to: Float.self)
+            noteLevel(l, r, stride: 1, frames: frames)
             for s in targets { s.write(left: l, right: r, stride: 1, frames: frames) }
         }
     }

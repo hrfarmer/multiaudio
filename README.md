@@ -17,6 +17,9 @@ multiple AirPlay speakers, with a volume slider for each one.
   All speakers share one RTP timeline, so they play in sync with each other.
   macOS's own multi-speaker AirPlay can't be used here: it only gives its speaker list
   to apps holding entitlements Apple reserves for itself.
+- **Idle:** after 30 seconds of silence MultiAudio can disconnect AirPlay speakers, so their
+  lights go out. Capture keeps running and the first audible sound reconnects them. The
+  speaker misses the moment it takes to reconnect.
 - **Channels:** each output can play stereo, or only the left or right channel, to split a
   stereo pair across two speakers.
 - **Sync:** Mac outputs are delayed to line up with AirPlay. The speakers delay audio by

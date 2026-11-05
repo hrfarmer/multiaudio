@@ -135,6 +135,7 @@ struct MenuView: View {
         case .off, .playing: return nil
         case .resolving: return "Finding…"
         case .connecting: return "Connecting…"
+        case .asleep: return "Asleep until audio plays"
         case .failed(let m): return m
         }
     }
@@ -379,6 +380,20 @@ struct SettingsTile: View {
                 }
                 .disabled(!model.anyAirPlayEnabled)
                 .transition(.opacity)
+            }
+
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Disconnect AirPlay when idle")
+                    Text("After 30 seconds of silence. Reconnects when audio plays.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Toggle("Disconnect AirPlay when idle", isOn: $model.airplaySleepsWhenIdle)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
             }
 
             HStack {

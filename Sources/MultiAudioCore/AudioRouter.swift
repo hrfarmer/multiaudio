@@ -16,6 +16,8 @@ public final class AudioRouter {
     private var airplayBuffer: StereoRingBuffer?
     private var resampler: AirPlayResampler?
     private var defaultDeviceListener: (() -> Void)?
+    /// Speakers disconnected by `suspendAirPlay`, to reconnect on `resumeAirPlay`.
+    private var suspendedAirPlay: [AirPlayTarget] = []
 
     /// Extra delay applied to local outputs so they line up with AirPlay (seconds).
     public var localDelay: Double = 0 {
@@ -73,6 +75,8 @@ public final class AudioRouter {
     // MARK: AirPlay
 
     public func enableAirPlay(_ target: AirPlayTarget, volume: Float, onState: @escaping (AirPlaySessionState) -> Void) throws {
+        resumeAirPlay()
+        tap.noteActivity() // a speaker turned on during silence shouldn't sleep right away
         if let existing = airplaySessions[target.name] {
             if case .failed = existing.state {} else { return }
             streamer?.remove(existing)
@@ -104,6 +108,8 @@ public final class AudioRouter {
     public func disableAirPlay(_ name: String) {
         stateHandlers.removeValue(forKey: name)
         airplayVolumes.removeValue(forKey: name)
+        suspendedAirPlay.removeAll { $0.name == name }
+        if suspendedAirPlay.isEmpty { tap.onNextAudio(nil) }
         if let s = airplaySessions.removeValue(forKey: name) { streamer?.remove(s) }
         if airplaySessions.isEmpty {
             streamer?.stopAll()
@@ -123,6 +129,33 @@ public final class AudioRouter {
     public func setAirPlayChannels(_ name: String, _ channels: ChannelMode) {
         airplayChannels[name] = channels
         airplaySessions[name]?.channels = channels
+    }
+
+    public var isAirPlaySuspended: Bool { !suspendedAirPlay.isEmpty }
+    public var secondsSinceAudio: Double { tap.secondsSinceAudio }
+
+    /// Disconnects every speaker but keeps capturing, then calls `onAudio` on the main thread
+    /// the next time audio is audible. Speakers stay enabled; they're just asleep.
+    public func suspendAirPlay(onAudio: @escaping () -> Void) {
+        guard !isAirPlaySuspended, !airplaySessions.isEmpty else { return }
+        suspendedAirPlay = airplaySessions.values.map(\.target)
+        streamer?.stopAll()
+        streamer = nil
+        airplaySessions = [:]
+        airplayBuffer = nil
+        resampler = nil
+        updateSinks()
+        tap.onNextAudio { DispatchQueue.main.async(execute: onAudio) }
+    }
+
+    public func resumeAirPlay() {
+        guard isAirPlaySuspended else { return }
+        let targets = suspendedAirPlay
+        suspendedAirPlay = []
+        tap.onNextAudio(nil)
+        tap.noteActivity()
+        ensureStreamer()
+        for t in targets { startSession(t, volume: (airplayVolumes[t.name] ?? 0.5) * masterVolume) }
     }
 
     /// Latency value sent to receivers (seconds). Changing it reconnects active AirPlay sessions.
@@ -145,6 +178,8 @@ public final class AudioRouter {
     public func stopAll() {
         for (uid, _) in locals { disableLocal(uid) }
         for (name, _) in airplaySessions { disableAirPlay(name) }
+        suspendedAirPlay = []
+        tap.onNextAudio(nil)
         tap.stop()
     }
 
@@ -190,7 +225,7 @@ public final class AudioRouter {
     }
 
     private func stopTapIfIdle() {
-        guard locals.isEmpty, airplaySessions.isEmpty else { return }
+        guard locals.isEmpty, airplaySessions.isEmpty, !isAirPlaySuspended else { return }
         tap.stop()
         defaultDeviceListener?()
         defaultDeviceListener = nil
