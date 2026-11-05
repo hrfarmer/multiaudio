@@ -307,6 +307,21 @@ struct NoticeTile: View {
 
 struct SettingsTile: View {
     @EnvironmentObject var model: AppModel
+
+    private func offsetStep(_ ms: Double, icon: String, help: String) -> some View {
+        Button {
+            let range = AppModel.offsetRangeMs
+            model.syncOffsetMs = min(range.upperBound, max(range.lowerBound, model.syncOffsetMs + ms))
+        } label: {
+            Image(systemName: icon).font(.caption2.weight(.bold)).frame(width: 12, height: 12)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.mini)
+        .buttonRepeatBehavior(.enabled)
+        .help(help)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Settings")
@@ -349,16 +364,17 @@ struct SettingsTile: View {
             }
 
             if model.syncLocalToAirPlay {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text("Offset").font(.callout)
-                    Slider(value: Binding(get: { model.syncOffsetMs },
-                                          set: { model.syncOffsetMs = ($0 / 10).rounded() * 10 }),
-                           in: -1000...1000)
+                    offsetStep(-1, icon: "minus", help: "1 ms earlier")
+                    Slider(value: Binding(get: { model.syncOffsetMs }, set: { model.syncOffsetMs = $0.rounded() }),
+                           in: AppModel.offsetRangeMs)
                         .controlSize(.small)
+                    offsetStep(1, icon: "plus", help: "1 ms later")
                     Text("\(Int(model.syncOffsetMs)) ms")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-                        .frame(width: 58, alignment: .trailing)
+                        .frame(width: 46, alignment: .trailing)
                         .contentTransition(.numericText())
                 }
                 .disabled(!model.anyAirPlayEnabled)

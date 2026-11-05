@@ -71,6 +71,7 @@ final class AppModel: ObservableObject {
     private var stopObservingVolume: (() -> Void)?
 
     static let defaultAirPlayOffsetMs = 0.0
+    static let offsetRangeMs = -250.0...250.0
 
     var isActive: Bool {
         localItems.contains { $0.enabled } || airplayItems.contains { $0.enabled }
@@ -78,7 +79,8 @@ final class AppModel: ObservableObject {
 
     init() {
         syncLocalToAirPlay = defaults.object(forKey: "syncLocalToAirPlay") as? Bool ?? true
-        syncOffsetMs = defaults.object(forKey: "syncOffsetMs") as? Double ?? AppModel.defaultAirPlayOffsetMs
+        let savedOffset = defaults.object(forKey: "syncOffsetMs") as? Double ?? AppModel.defaultAirPlayOffsetMs
+        syncOffsetMs = min(AppModel.offsetRangeMs.upperBound, max(AppModel.offsetRangeMs.lowerBound, savedOffset))
         airplayBuffer = defaults.object(forKey: "airplayBuffer") as? Double ?? 0.25
         holdsSystemOutput = VirtualDevice.isSystemOutput
         router.airplayBufferSeconds = airplayBuffer
@@ -139,7 +141,7 @@ final class AppModel: ObservableObject {
         restoreReady = true
         restorePendingLocal()
         updateAirPlay(airplayItems.map(\.device))
-        updateSystemOutput()
+        updateLocalDelay()
     }
 
     private func restorePendingLocal() {
@@ -316,6 +318,9 @@ final class AppModel: ObservableObject {
         var latency = 0.0
         if localItems.contains(where: { $0.enabled }) { latency = router.localDelay + AudioRouter.localBaseDelay }
         if anyAirPlayEnabled { latency = max(latency, router.airplayDelay) }
+        // Only an instance that's routing may set this: the device is shared, so a debug
+        // launch with nothing on would otherwise tell video players there's no delay.
+        guard restoreReady else { return }
         VirtualDevice.setLatency(seconds: latency)
         updateSystemOutput()
     }

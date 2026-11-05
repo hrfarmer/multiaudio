@@ -14,8 +14,10 @@ public final class StereoRingBuffer: @unchecked Sendable {
     private var writePos: Int = 0
     private var readPos: Int = 0
     private var priming = true
-    /// Set when the target changes, so the next read lands exactly on the new delay.
-    private var realign = false
+    /// Target changes not yet applied by the reader, in frames.
+    private var pendingShift = 0
+    /// Bigger increases than this wait in silence instead of replaying audio already heard.
+    private static let maxReplayFrames = 4096
     /// How far the backlog may wander from the target before it's corrected. Must exceed
     /// normal IO-cycle jitter, and stays small because this is also the sync error.
     private static let driftTolerance = 2048
@@ -27,7 +29,7 @@ public final class StereoRingBuffer: @unchecked Sendable {
         set {
             lock.withLockUnchecked {
                 let target = max(256, min(newValue, capacity - 4096))
-                if target != _target { realign = true }
+                pendingShift += target - _target
                 _target = target
             }
         }
@@ -63,9 +65,17 @@ public final class StereoRingBuffer: @unchecked Sendable {
         lock.withLockUnchecked {
             var available = writePos - readPos
             let tolerance = Self.driftTolerance
-            let exact = realign
-            realign = false
-            if available < _target - (exact ? 0 : tolerance) { priming = true }
+            // Move the read position by exactly the change, not to writePos - target: writePos
+            // advances a whole IO cycle at a time, which would make small changes land several
+            // milliseconds off.
+            if pendingShift > Self.maxReplayFrames {
+                priming = true
+            } else if pendingShift != 0, !priming {
+                readPos = min(writePos, max(writePos - capacity, readPos - pendingShift))
+                available = writePos - readPos
+            }
+            pendingShift = 0
+            if available < _target - tolerance { priming = true }
             if priming {
                 guard available >= _target else {
                     out.update(repeating: 0, count: frames * 2)
@@ -74,7 +84,7 @@ public final class StereoRingBuffer: @unchecked Sendable {
                 priming = false
                 readPos = writePos - _target
                 available = _target
-            } else if available > _target + (exact ? 0 : tolerance) {
+            } else if available > _target + tolerance {
                 readPos = writePos - _target
                 available = _target
             }
