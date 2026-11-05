@@ -24,7 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugLaunch.runIfRequested(model: model, controller: controller)
         // Let the status item appear first, then bring back saved outputs.
         // (Debug UI launches never re-enable outputs, so tests don't route real audio.)
-        if !DebugLaunch.isDebugLaunch { DispatchQueue.main.async { model.beginRestoring() } }
+        guard !DebugLaunch.isDebugLaunch else { return }
+        DispatchQueue.main.async {
+            model.beginRestoring()
+            // Nothing works until the driver is in, so don't wait to be clicked.
+            if model.driverState != .ready { controller.open() }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

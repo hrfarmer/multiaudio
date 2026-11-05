@@ -13,7 +13,8 @@ enum VirtualDeviceInstaller {
     private static var bundledPath: String? { Bundle.main.path(forResource: "MultiAudioDevice", ofType: "driver") }
 
     private static func version(at path: String) -> String? {
-        Bundle(path: path)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        // Not Bundle(path:): it reports no Info.plist for the copy nested in the app.
+        NSDictionary(contentsOfFile: "\(path)/Contents/Info.plist")?["CFBundleVersion"] as? String
     }
 
     static var state: State {
@@ -23,16 +24,12 @@ enum VirtualDeviceInstaller {
     }
 
     static func install() async throws {
-        guard let bundledPath else { throw NSError(domain: "MultiAudio", code: 1, userInfo: [NSLocalizedDescriptionKey: "This build doesn't include the video sync driver."]) }
+        guard let bundledPath else { throw NSError(domain: "MultiAudio", code: 1, userInfo: [NSLocalizedDescriptionKey: "This build doesn't include the audio driver."]) }
         let installed = shellQuoted(installedPath)
         try await runAsAdmin("""
             mkdir -p \(shellQuoted(systemFolder)) && rm -rf \(installed) && \
             cp -R \(shellQuoted(bundledPath)) \(installed) && chown -R root:wheel \(installed) && killall coreaudiod
             """)
-    }
-
-    static func remove() async throws {
-        try await runAsAdmin("rm -rf \(shellQuoted(installedPath)) && killall coreaudiod")
     }
 
     /// Restarting coreaudiod invalidates every audio object this process holds, so start over.

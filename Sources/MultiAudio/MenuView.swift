@@ -30,32 +30,42 @@ struct MenuView: View {
                         .transition(.blurReplace)
                 }
 
-                DeviceSection(title: "This Mac", emptyText: "No output devices") {
-                    ForEach(model.localItems) { item in
-                        DeviceRow(name: item.device.name,
-                                  icon: Self.icon(forTransport: item.device.transport),
-                                  enabled: Binding(get: { item.enabled }, set: { model.setLocal(item.id, enabled: $0) }),
-                                  volume: Binding(get: { item.volume }, set: { model.setLocalVolume(item.id, $0) }),
-                                  status: item.error, statusIsError: item.error != nil)
-                    }
-                } isEmpty: { model.localItems.isEmpty }
-                .glassEffect(.regular, in: tileShape)
-                .glassEffectID("local", in: glass)
+                if model.driverState == .ready {
+                    DeviceSection(title: "This Mac", emptyText: "No output devices") {
+                        ForEach(model.localItems) { item in
+                            DeviceRow(name: item.device.name,
+                                      icon: Self.icon(forTransport: item.device.transport),
+                                      enabled: Binding(get: { item.enabled }, set: { model.setLocal(item.id, enabled: $0) }),
+                                      volume: Binding(get: { item.volume }, set: { model.setLocalVolume(item.id, $0) }),
+                                      status: item.error, statusIsError: item.error != nil)
+                        }
+                    } isEmpty: { model.localItems.isEmpty }
+                    .glassEffect(.regular, in: tileShape)
+                    .glassEffectID("local", in: glass)
 
-                DeviceSection(title: "AirPlay", emptyText: "Looking for speakers…") {
-                    ForEach(model.airplayItems) { item in
-                        DeviceRow(name: item.device.name,
-                                  icon: Self.airplayIcon(item.device.model),
-                                  enabled: Binding(get: { item.enabled }, set: { model.setAirPlay(item.id, enabled: $0) }),
-                                  volume: Binding(get: { item.volume }, set: { model.setAirPlayVolume(item.id, $0) }),
-                                  status: Self.statusText(item.status),
-                                  statusIsError: { if case .failed = item.status { true } else { false } }(),
-                                  busy: [.resolving, .connecting].contains(item.status),
-                                  retry: { if case .failed = item.status { { model.retryAirPlay(item.id) } } else { nil } }())
-                    }
-                } isEmpty: { model.airplayItems.isEmpty }
-                .glassEffect(.regular, in: tileShape)
-                .glassEffectID("airplay", in: glass)
+                    DeviceSection(title: "AirPlay", emptyText: "Looking for speakers…") {
+                        ForEach(model.airplayItems) { item in
+                            DeviceRow(name: item.device.name,
+                                      icon: Self.airplayIcon(item.device.model),
+                                      enabled: Binding(get: { item.enabled }, set: { model.setAirPlay(item.id, enabled: $0) }),
+                                      volume: Binding(get: { item.volume }, set: { model.setAirPlayVolume(item.id, $0) }),
+                                      status: Self.statusText(item.status),
+                                      statusIsError: { if case .failed = item.status { true } else { false } }(),
+                                      busy: [.resolving, .connecting].contains(item.status),
+                                      retry: { if case .failed = item.status { { model.retryAirPlay(item.id) } } else { nil } }())
+                        }
+                    } isEmpty: { model.airplayItems.isEmpty }
+                    .glassEffect(.regular, in: tileShape)
+                    .glassEffectID("airplay", in: glass)
+                } else {
+                    NoticeTile(icon: "speaker.badge.exclamationmark.fill", tint: .accentColor,
+                               text: model.driverState == .missing
+                                   ? "MultiAudio needs its audio driver to route sound and keep video in time. Installing asks for your password and briefly cuts sound."
+                                   : "MultiAudio's audio driver needs an update. Updating asks for your password and briefly cuts sound.",
+                               action: (model.driverState == .missing ? "Install Driver…" : "Update Driver…", { model.installDriver() }))
+                        .glassEffectID("setup", in: glass)
+                        .transition(.blurReplace)
+                }
 
                 if model.showSettings {
                     SettingsTile()
@@ -338,37 +348,6 @@ struct SettingsTile: View {
                 }
                 .disabled(!model.anyAirPlayEnabled)
                 .transition(.opacity)
-            }
-
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Video sync")
-                    Text(model.driverState == .ready
-                         ? "Keeps video in time with delayed audio. The volume keys control all outputs."
-                         : "Keeps video in time with delayed audio. Needs a one-time install.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if model.driverState != .missing {
-                        Button("Remove driver…") { model.removeDriver() }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                            .disabled(model.driverBusy)
-                    }
-                }
-                Spacer(minLength: 8)
-                switch model.driverState {
-                case .ready:
-                    Toggle("Video sync", isOn: $model.videoSync)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                case .missing, .outdated:
-                    Button(model.driverState == .missing ? "Install…" : "Update…") { model.installDriver() }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                        .disabled(model.driverBusy)
-                }
             }
 
             HStack {

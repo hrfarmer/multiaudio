@@ -52,11 +52,7 @@ final class AppModel: ObservableObject {
         }
     }
     var airplayDelayDescription: String { String(format: "%.1f s", router.airplayDelay) }
-    /// Keep the virtual device as the system output while any output is on, so video
-    /// players know about the delay. See `updateSystemOutput()`.
-    @Published var videoSync: Bool {
-        didSet { defaults.set(videoSync, forKey: "videoSync"); updateSystemOutput() }
-    }
+    /// Nothing is routed until the virtual device is installed and current.
     @Published var driverState = VirtualDeviceInstaller.state
     @Published var driverBusy = false
     @Published var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
@@ -67,6 +63,8 @@ final class AppModel: ObservableObject {
     private var listeners: [() -> Void] = []
     /// Whether we put the virtual device in as the system output and owe it back.
     private var holdsSystemOutput = false
+    /// Someone picked another output in the Sound menu; leave it until routing next starts.
+    private var systemOutputOverridden = false
     private var observedVirtualDevice: AudioDeviceID?
     private var stopObservingVolume: (() -> Void)?
 
@@ -81,9 +79,6 @@ final class AppModel: ObservableObject {
         syncOffsetMs = defaults.object(forKey: "syncOffsetMs") as? Double ?? AppModel.defaultAirPlayOffsetMs
         airplayBuffer = defaults.object(forKey: "airplayBuffer") as? Double ?? 0.25
         holdsSystemOutput = VirtualDevice.isSystemOutput
-        videoSync = defaults.object(forKey: "videoSync") as? Bool ?? VirtualDevice.isSystemOutput
-        // If it was first inferred, keep it: quitting hands the system output back.
-        defaults.set(videoSync, forKey: "videoSync")
         router.airplayBufferSeconds = airplayBuffer
         router.onError = { [weak self] msg in Task { @MainActor in self?.errorMessage = msg } }
 
@@ -133,6 +128,10 @@ final class AppModel: ObservableObject {
     private var restoreReady = false
 
     func beginRestoring() {
+        guard driverState == .ready else {
+            releaseSystemOutput() // don't sit silently on a device nothing is reading
+            return
+        }
         restoreReady = true
         restorePendingLocal()
         updateAirPlay(airplayItems.map(\.device))
@@ -297,16 +296,18 @@ final class AppModel: ObservableObject {
         updateSystemOutput()
     }
 
-    // MARK: Video sync
+    // MARK: Virtual device
 
-    /// The virtual device discards its audio and only the tap keeps sound coming out, so it
-    /// must not stay the system output once nothing is routed.
+    /// The virtual device is the system output while anything is routed, so video players
+    /// know about the delay. It discards its audio and only the tap keeps sound coming out,
+    /// so it must not stay the system output once nothing is routed.
     private func updateSystemOutput() {
         guard restoreReady else { return }
-        let wanted = videoSync && isActive && VirtualDevice.deviceID != nil
+        if !isActive { systemOutputOverridden = false }
+        let wanted = isActive && !systemOutputOverridden && VirtualDevice.deviceID != nil
         if wanted && !holdsSystemOutput {
             holdsSystemOutput = true
-            if let previous = VirtualDevice.becomeSystemOutput() { defaults.set(previous, forKey: "videoSync.previousOutput") }
+            if let previous = VirtualDevice.becomeSystemOutput() { defaults.set(previous, forKey: "previousSystemOutput") }
         } else if !wanted && holdsSystemOutput {
             releaseSystemOutput()
         }
@@ -315,7 +316,7 @@ final class AppModel: ObservableObject {
     private func releaseSystemOutput() {
         guard holdsSystemOutput else { return }
         holdsSystemOutput = false
-        VirtualDevice.resignSystemOutput(to: defaults.string(forKey: "videoSync.previousOutput"))
+        VirtualDevice.resignSystemOutput(to: defaults.string(forKey: "previousSystemOutput"))
     }
 
     /// The volume keys change the virtual device's volume while it's the system output.
@@ -333,24 +334,11 @@ final class AppModel: ObservableObject {
     }
 
     func installDriver() {
-        runDriverChange {
-            try await VirtualDeviceInstaller.install()
-            self.defaults.set(true, forKey: "videoSync")
-        }
-    }
-
-    func removeDriver() {
-        runDriverChange {
-            self.videoSync = false
-            try await VirtualDeviceInstaller.remove()
-        }
-    }
-
-    private func runDriverChange(_ change: @escaping @MainActor () async throws -> Void) {
+        guard !driverBusy else { return }
         driverBusy = true
         Task {
             do {
-                try await change()
+                try await VirtualDeviceInstaller.install()
                 VirtualDeviceInstaller.relaunch()
             } catch is VirtualDeviceInstaller.Cancelled {
                 driverBusy = false
@@ -364,10 +352,10 @@ final class AppModel: ObservableObject {
     func checkSystemOutput() {
         let dev = CA_defaultOutput()
         systemOutputIsAirPlay = CA_transport(dev) == kAudioDeviceTransportTypeAirPlay
-        // Someone picked another output in the Sound menu: respect that rather than fight it.
+        // Respect a choice made in the Sound menu rather than fight it.
         if holdsSystemOutput && VirtualDevice.deviceID != nil && !VirtualDevice.isSystemOutput {
             holdsSystemOutput = false
-            videoSync = false
+            systemOutputOverridden = true
         }
         applyMasterVolume()
     }

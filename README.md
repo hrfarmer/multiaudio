@@ -20,12 +20,13 @@ multiple AirPlay speakers, with a volume slider for each one.
 - **Sync:** Mac outputs are delayed to line up with AirPlay. The speakers delay audio by
   about 2 × the buffer setting + 65 ms. The Sync offset slider fine-tunes the delay.
 
-- **Video sync (optional):** the MultiAudio virtual output device (`Driver/`) is a Core Audio
-  plug-in that reports MultiAudio's current delay as its latency. With it as the system
-  output, video players delay their picture to match. It discards its own audio; the tap
-  still captures what apps play, so MultiAudio only keeps it selected while an output is on,
-  and hands the system output back otherwise. Its volume and mute controls act as a master
-  volume across all outputs, so the volume keys work.
+- **Video sync:** MultiAudio requires its virtual output device (`Driver/`), a Core Audio
+  plug-in that reports the current delay as its latency. While any output is on, MultiAudio
+  makes it the system output, so video players delay their picture to match. It discards its
+  own audio; the tap still captures what apps play. When nothing is routed, MultiAudio hands
+  the system output back. Picking another output in the Sound menu is respected until
+  routing next starts. The device's volume and mute controls act as a master volume across
+  all outputs, so the volume keys work.
 
 ## UI
 
@@ -50,9 +51,9 @@ scripts/make-signing-identity.sh   # once: stable local signing, so permissions 
 scripts/build-app.sh --install     # builds and copies to /Applications/MultiAudio.app
 ```
 
-Video sync is installed from Settings in the app. It needs an admin password, briefly cuts
-all audio and restarts MultiAudio. `scripts/build-driver.sh --install` and `--uninstall` do
-the same from a terminal; restart MultiAudio afterwards.
+On launch, MultiAudio offers to install the driver it needs. That takes an admin password,
+briefly cuts all audio and restarts MultiAudio. To remove it, run
+`scripts/build-driver.sh --uninstall`.
 
 On first use, macOS asks for **Local Network** (to find speakers) and
 **System Audio Recording** (to capture audio) permission.
