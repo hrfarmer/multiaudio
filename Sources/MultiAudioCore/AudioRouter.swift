@@ -9,6 +9,8 @@ public final class AudioRouter {
     private var locals: [String: LocalOutput] = [:]
     private var localVolumes: [String: Float] = [:]
     private var airplayVolumes: [String: Float] = [:]
+    private var localChannels: [String: ChannelMode] = [:]
+    private var airplayChannels: [String: ChannelMode] = [:]
     private var airplaySessions: [String: AirPlaySession] = [:]
     private var streamer: AirPlayStreamer?
     private var airplayBuffer: StereoRingBuffer?
@@ -46,6 +48,7 @@ public final class AudioRouter {
         try ensureTap()
         let out = LocalOutput(device: device, sampleRate: tap.sampleRate, delayFrames: localDelayFrames)
         out.setVolume(volume * masterVolume)
+        out.channels = localChannels[device.id] ?? .stereo
         try out.start(sampleRate: tap.sampleRate)
         locals[device.id] = out
         updateSinks()
@@ -60,6 +63,11 @@ public final class AudioRouter {
     public func setLocalVolume(_ uid: String, _ v: Float) {
         localVolumes[uid] = v
         locals[uid]?.setVolume(v * masterVolume)
+    }
+
+    public func setLocalChannels(_ uid: String, _ channels: ChannelMode) {
+        localChannels[uid] = channels
+        locals[uid]?.channels = channels
     }
 
     // MARK: AirPlay
@@ -80,6 +88,7 @@ public final class AudioRouter {
 
     private func startSession(_ target: AirPlayTarget, volume: Float) {
         let session = AirPlaySession(target: target, volume: volume)
+        session.channels = airplayChannels[target.name] ?? .stereo
         // Only the current session for a name may report state; late callbacks
         // from a replaced/stopped session are dropped.
         session.onStateChange = { [weak self, weak session] state in
@@ -109,6 +118,11 @@ public final class AudioRouter {
     public func setAirPlayVolume(_ name: String, _ v: Float) {
         airplayVolumes[name] = v
         airplaySessions[name]?.setVolume(v * masterVolume)
+    }
+
+    public func setAirPlayChannels(_ name: String, _ channels: ChannelMode) {
+        airplayChannels[name] = channels
+        airplaySessions[name]?.channels = channels
     }
 
     /// Latency value sent to receivers (seconds). Changing it reconnects active AirPlay sessions.

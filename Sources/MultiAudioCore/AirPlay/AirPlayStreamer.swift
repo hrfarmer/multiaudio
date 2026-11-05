@@ -116,7 +116,11 @@ public final class AirPlayStreamer: @unchecked Sendable {
         var lastSync = 0.0
         let spf = AirPlayStreamer.framesPerPacket
         let pcm = UnsafeMutablePointer<Int16>.allocate(capacity: spf * 2)
-        defer { pcm.deallocate() }
+        let mixed = UnsafeMutablePointer<Int16>.allocate(capacity: spf * 2)
+        defer {
+            pcm.deallocate()
+            mixed.deallocate()
+        }
 
         while true {
             let (alive, current, rtp) = lock.withLock { (running, sessions, rtpNow) }
@@ -132,8 +136,15 @@ public final class AirPlayStreamer: @unchecked Sendable {
                 } else {
                     for s in active where s.needsFirstSync { s.sendSync(rtpNow: rtp, latency: latencyFrames) }
                 }
-                let frame = ALACRaw.encode(pcm, frames: spf, fullFrames: spf)
-                for s in active { s.sendAudio(rtpTime: rtp, alac: frame, marker: false) }
+                // Same RTP timeline for everyone; only the channel mix differs per speaker.
+                for mode in ChannelMode.allCases {
+                    let group = active.filter { $0.channels == mode }
+                    guard !group.isEmpty else { continue }
+                    mixed.update(from: pcm, count: spf * 2)
+                    mode.apply(to: mixed, frames: spf)
+                    let frame = ALACRaw.encode(mixed, frames: spf, fullFrames: spf)
+                    for s in group { s.sendAudio(rtpTime: rtp, alac: frame, marker: false) }
+                }
             }
             lock.withLock { rtpNow = rtpNow &+ UInt32(spf) }
 

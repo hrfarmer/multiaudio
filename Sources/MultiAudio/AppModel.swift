@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
         var device: OutputDeviceInfo
         var enabled: Bool
         var volume: Float
+        var channels: ChannelMode
         var error: String?
     }
 
@@ -27,6 +28,7 @@ final class AppModel: ObservableObject {
         var device: DiscoveredAirPlayDevice
         var enabled: Bool
         var volume: Float
+        var channels: ChannelMode
         var status: AirPlayStatus
     }
 
@@ -109,7 +111,9 @@ final class AppModel: ObservableObject {
             } else {
                 let enabled = defaults.bool(forKey: "local.enabled.\(d.id)")
                 let volume = defaults.object(forKey: "local.volume.\(d.id)") as? Float ?? 1.0
-                items.append(LocalItem(id: d.id, device: d, enabled: false, volume: volume))
+                let channels = storedChannels("local.channels.\(d.id)")
+                router.setLocalChannels(d.id, channels)
+                items.append(LocalItem(id: d.id, device: d, enabled: false, volume: volume, channels: channels))
                 if enabled { pendingLocalRestore.insert(d.id) }
             }
         }
@@ -171,6 +175,17 @@ final class AppModel: ObservableObject {
         updateLocalDelay()
     }
 
+    private func storedChannels(_ key: String) -> ChannelMode {
+        defaults.string(forKey: key).flatMap(ChannelMode.init(rawValue:)) ?? .stereo
+    }
+
+    func setLocalChannels(_ id: String, _ channels: ChannelMode) {
+        guard let i = localItems.firstIndex(where: { $0.id == id }) else { return }
+        localItems[i].channels = channels
+        defaults.set(channels.rawValue, forKey: "local.channels.\(id)")
+        router.setLocalChannels(id, channels)
+    }
+
     func setLocalVolume(_ id: String, _ v: Float) {
         guard let i = localItems.firstIndex(where: { $0.id == id }) else { return }
         localItems[i].volume = v
@@ -189,7 +204,9 @@ final class AppModel: ObservableObject {
                 items.append(e)
             } else {
                 let volume = defaults.object(forKey: "airplay.volume.\(d.name)") as? Float ?? 0.5
-                items.append(AirPlayItem(device: d, enabled: false, volume: volume, status: .off))
+                let channels = storedChannels("airplay.channels.\(d.name)")
+                router.setAirPlayChannels(d.name, channels)
+                items.append(AirPlayItem(device: d, enabled: false, volume: volume, channels: channels, status: .off))
             }
         }
         // Keep enabled devices around even if Bonjour briefly drops them.
@@ -269,6 +286,13 @@ final class AppModel: ObservableObject {
         retryAttempts[name] = 0
         router.disableAirPlay(name)
         setAirPlay(name, enabled: true)
+    }
+
+    func setAirPlayChannels(_ name: String, _ channels: ChannelMode) {
+        guard let i = airplayItems.firstIndex(where: { $0.id == name }) else { return }
+        airplayItems[i].channels = channels
+        defaults.set(channels.rawValue, forKey: "airplay.channels.\(name)")
+        router.setAirPlayChannels(name, channels)
     }
 
     func setAirPlayVolume(_ name: String, _ v: Float) {

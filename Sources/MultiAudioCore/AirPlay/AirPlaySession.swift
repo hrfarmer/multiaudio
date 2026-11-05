@@ -89,6 +89,11 @@ public final class AirPlaySession: @unchecked Sendable {
     private var pendingVolume: Float = 0.5
     public private(set) var stats = (timingRequests: 0, resendRequests: 0, packetsSent: 0)
     public private(set) var volume: Float = 0.5
+    private var _channels: ChannelMode = .stereo
+    public var channels: ChannelMode {
+        get { lock.withLock { _channels } }
+        set { lock.withLock { _channels = newValue } }
+    }
 
     public init(target: AirPlayTarget, volume: Float) {
         self.target = target

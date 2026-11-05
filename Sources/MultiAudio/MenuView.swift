@@ -37,6 +37,7 @@ struct MenuView: View {
                                       icon: Self.icon(forTransport: item.device.transport),
                                       enabled: Binding(get: { item.enabled }, set: { model.setLocal(item.id, enabled: $0) }),
                                       volume: Binding(get: { item.volume }, set: { model.setLocalVolume(item.id, $0) }),
+                                  channels: Binding(get: { item.channels }, set: { model.setLocalChannels(item.id, $0) }),
                                       status: item.error, statusIsError: item.error != nil)
                         }
                     } isEmpty: { model.localItems.isEmpty }
@@ -49,6 +50,7 @@ struct MenuView: View {
                                       icon: Self.airplayIcon(item.device.model),
                                       enabled: Binding(get: { item.enabled }, set: { model.setAirPlay(item.id, enabled: $0) }),
                                       volume: Binding(get: { item.volume }, set: { model.setAirPlayVolume(item.id, $0) }),
+                                  channels: Binding(get: { item.channels }, set: { model.setAirPlayChannels(item.id, $0) }),
                                       status: Self.statusText(item.status),
                                       statusIsError: { if case .failed = item.status { true } else { false } }(),
                                       busy: [.resolving, .connecting].contains(item.status),
@@ -190,6 +192,7 @@ struct DeviceRow: View {
     let icon: String
     @Binding var enabled: Bool
     @Binding var volume: Float
+    @Binding var channels: ChannelMode
     var status: String?
     var statusIsError = false
     var busy = false
@@ -251,6 +254,18 @@ struct DeviceRow: View {
                     Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.secondary)
                 }
                 .labelsHidden()
+                .controlSize(.small)
+                .padding(.leading, 46)
+                .padding(.trailing, 8)
+                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: -6)), removal: .opacity))
+
+                Picker("\(name) channels", selection: $channels) {
+                    Text("Stereo").tag(ChannelMode.stereo)
+                    Text("Left").tag(ChannelMode.left)
+                    Text("Right").tag(ChannelMode.right)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
                 .controlSize(.small)
                 .padding(.leading, 46)
                 .padding(.trailing, 8)

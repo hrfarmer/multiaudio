@@ -17,6 +17,8 @@ multiple AirPlay speakers, with a volume slider for each one.
   All speakers share one RTP timeline, so they play in sync with each other.
   macOS's own multi-speaker AirPlay can't be used here: it only gives its speaker list
   to apps holding entitlements Apple reserves for itself.
+- **Channels:** each output can play stereo, or only the left or right channel, to split a
+  stereo pair across two speakers.
 - **Sync:** Mac outputs are delayed to line up with AirPlay. The speakers delay audio by
   about 2 × the buffer setting + 65 ms. The Sync offset slider fine-tunes the delay.
 

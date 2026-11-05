@@ -9,6 +9,7 @@ public final class LocalOutput: @unchecked Sendable {
     public let buffer: StereoRingBuffer
     private var unit: AudioUnit?
     private var gain: Float = 1
+    public var channels: ChannelMode = .stereo
 
     public init(device: OutputDeviceInfo, sampleRate: Double, delayFrames: Int) {
         self.device = device
@@ -49,7 +50,9 @@ public final class LocalOutput: @unchecked Sendable {
             guard let ioData else { return noErr }
             let abl = UnsafeMutableAudioBufferListPointer(ioData)
             guard let data = abl.first?.mData else { return noErr }
-            me.buffer.read(into: data.assumingMemoryBound(to: Float.self), frames: Int(frames), gain: me.gain)
+            let out = data.assumingMemoryBound(to: Float.self)
+            me.buffer.read(into: out, frames: Int(frames), gain: me.gain)
+            me.channels.apply(to: out, frames: Int(frames))
             return noErr
         }, inputProcRefCon: Unmanaged.passUnretained(self).toOpaque())
         status = AudioUnitSetProperty(au, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0,
